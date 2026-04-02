@@ -19,6 +19,7 @@ interface MeetingRoomProps {
   positions: Map<string, MemberPosition>;
   votes: Array<{ member: string; option: string; confidence: number; defected: boolean }>;
   reaper: (SandboxEvent & { event: "reaper" }) | null;
+  finalPlan: string;
 }
 
 // ─── Agent position tracking (persistent across renders) ───
@@ -156,13 +157,23 @@ function assignTargets(
         break;
       }
 
-      case "verdict":
-      case "synthesis": {
-        // At the table, waiting
+      case "verdict": {
         const seat = TABLE_SEATS[i] ?? TABLE_SEATS[0];
         agent.targetX = seat.x;
         agent.targetY = seat.y;
-        agent.activity = phase === "verdict" ? "⚖️" : "📝";
+        agent.activity = "⚖️";
+        break;
+      }
+
+      case "synthesis": {
+        // Agents orbit around center, "contributing" to the document
+        const orbitAngle = (i / members.length) * Math.PI * 2 + (frame - phaseStartFrame) * 0.003;
+        const orbitR = 190;
+        agent.targetX = TABLE.x + Math.cos(orbitAngle) * orbitR;
+        agent.targetY = TABLE.y + Math.sin(orbitAngle) * (orbitR * 0.5);
+        // Cycle through "thinking" emojis
+        const thinkCycle = ["🤔", "💭", "✍️", "📝"];
+        agent.activity = thinkCycle[Math.floor((frame + i * 20) / 40) % thinkCycle.length];
         break;
       }
 
@@ -574,7 +585,7 @@ function drawPhaseTitle(ctx: CanvasRenderingContext2D, phase: CouncilPhase, fram
 
 // ─── Main component ───
 
-export function MeetingRoom({ members, phase, positions, votes, reaper }: MeetingRoomProps) {
+export function MeetingRoom({ members, phase, positions, votes, reaper, finalPlan }: MeetingRoomProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef(0);
   const rafRef = useRef<number>(0);
@@ -650,6 +661,175 @@ export function MeetingRoom({ members, phase, positions, votes, reaper }: Meetin
       }
     });
 
+    // Synthesis overlay — document being assembled
+    if (phase === "synthesis" || (phase === "idle" && finalPlan)) {
+      const synthFrame = frame - phaseStartFrame;
+      const cx = TABLE.x;
+      const cy = TABLE.y;
+
+      // Contribution lines from each agent to center document
+      if (phase === "synthesis") {
+        members.forEach((member) => {
+          const agent = agentAnims.get(member.id);
+          if (!agent) return;
+
+          // Pulsing line from agent to center
+          const pulse = (Math.sin(synthFrame * 0.08 + agent.x * 0.01) + 1) / 2;
+          ctx.strokeStyle = member.color + Math.floor(pulse * 150 + 50).toString(16).padStart(2, "0");
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([4, 6]);
+          ctx.beginPath();
+          ctx.moveTo(agent.x, agent.y);
+          ctx.lineTo(cx, cy);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Traveling data particles along the line
+          const particleCount = 3;
+          for (let p = 0; p < particleCount; p++) {
+            const t = ((synthFrame * 0.02 + p / particleCount) % 1);
+            const px = lerp(agent.x, cx, t);
+            const py = lerp(agent.y, cy, t);
+            ctx.fillStyle = member.color;
+            ctx.globalAlpha = 1 - t * 0.5;
+            ctx.beginPath();
+            ctx.arc(px, py, 3 - t * 2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.globalAlpha = 1;
+        });
+      }
+
+      // Central document panel
+      const docW = 320;
+      const docH = 200;
+      const docX = cx - docW / 2;
+      const docY = cy - docH / 2;
+
+      // Document shadow
+      ctx.fillStyle = "#00000066";
+      ctx.beginPath();
+      ctx.roundRect(docX + 4, docY + 4, docW, docH, 6);
+      ctx.fill();
+
+      // Document background
+      const docGrad = ctx.createLinearGradient(docX, docY, docX, docY + docH);
+      docGrad.addColorStop(0, "#141428");
+      docGrad.addColorStop(1, "#0a0a1e");
+      ctx.fillStyle = docGrad;
+      ctx.beginPath();
+      ctx.roundRect(docX, docY, docW, docH, 6);
+      ctx.fill();
+
+      // Document border (glowing during synthesis)
+      if (phase === "synthesis") {
+        const glow = Math.sin(synthFrame * 0.06) * 0.3 + 0.7;
+        ctx.strokeStyle = `rgba(0, 255, 100, ${glow})`;
+        ctx.lineWidth = 2;
+      } else {
+        ctx.strokeStyle = "#333";
+        ctx.lineWidth = 1;
+      }
+      ctx.stroke();
+
+      // Document header
+      ctx.fillStyle = "#00ff6688";
+      ctx.fillRect(docX, docY, docW, 24);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 10px 'Courier New', monospace";
+      ctx.textAlign = "left";
+      ctx.fillText("FINAL PLAN v1", docX + 8, docY + 16);
+
+      // Status indicator
+      if (phase === "synthesis") {
+        const dots = ".".repeat((Math.floor(synthFrame / 15) % 4));
+        ctx.fillStyle = "#00ff66";
+        ctx.textAlign = "right";
+        ctx.fillText(`COMPILING${dots}`, docX + docW - 8, docY + 16);
+      } else {
+        ctx.fillStyle = "#00ff66";
+        ctx.textAlign = "right";
+        ctx.fillText("COMPLETE", docX + docW - 8, docY + 16);
+      }
+
+      // Document content — show plan text typing in
+      const planText = finalPlan || "Synthesizing council positions...";
+      const visibleChars = phase === "synthesis"
+        ? Math.min(planText.length, Math.floor(synthFrame * 1.5))
+        : planText.length;
+      const visibleText = planText.slice(0, visibleChars);
+
+      // Parse into lines that fit the document
+      ctx.font = "9px 'Courier New', monospace";
+      ctx.textAlign = "left";
+      const maxLineW = docW - 20;
+      const docLines: Array<{ text: string; color: string }> = [];
+      for (const rawLine of visibleText.split("\n")) {
+        // Color headers green, risks red, normal white
+        let color = "#999";
+        if (rawLine.startsWith("#")) color = "#00ff66";
+        else if (rawLine.includes("Risk") || rawLine.includes("⚠")) color = "#ff6644";
+        else if (rawLine.startsWith("-") || rawLine.startsWith("*")) color = "#aaa";
+        else if (rawLine.includes("GHOST")) color = "#7B68EE";
+        else if (rawLine.includes("SCOUT")) color = "#00CC00";
+        else if (rawLine.includes("RAZOR")) color = "#FF4444";
+        else if (rawLine.includes("BISHOP")) color = "#FFD700";
+
+        // Word wrap
+        const words = rawLine.split(" ");
+        let current = "";
+        for (const word of words) {
+          const test = current ? `${current} ${word}` : word;
+          if (ctx.measureText(test).width > maxLineW && current) {
+            docLines.push({ text: current, color });
+            current = word;
+          } else {
+            current = test;
+          }
+        }
+        if (current) docLines.push({ text: current, color });
+        else docLines.push({ text: "", color }); // blank line
+      }
+
+      // Render visible lines with scroll
+      const lineH = 11;
+      const maxVisibleLines = Math.floor((docH - 34) / lineH);
+      const scrollOffset = Math.max(0, docLines.length - maxVisibleLines);
+      const startLine = phase === "synthesis" ? scrollOffset : 0;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(docX + 2, docY + 26, docW - 4, docH - 28);
+      ctx.clip();
+
+      docLines.slice(startLine, startLine + maxVisibleLines).forEach((line, i) => {
+        ctx.fillStyle = line.color;
+        ctx.fillText(line.text, docX + 10, docY + 36 + i * lineH);
+      });
+
+      // Blinking cursor at the end during synthesis
+      if (phase === "synthesis" && Math.floor(synthFrame / 15) % 2 === 0) {
+        const lastLineIdx = Math.min(docLines.length - startLine, maxVisibleLines) - 1;
+        if (lastLineIdx >= 0) {
+          const lastLine = docLines[startLine + lastLineIdx];
+          const cursorX = docX + 10 + ctx.measureText(lastLine.text).width + 2;
+          const cursorY = docY + 28 + lastLineIdx * lineH;
+          ctx.fillStyle = "#00ff66";
+          ctx.fillRect(cursorX, cursorY, 6, lineH);
+        }
+      }
+      ctx.restore();
+
+      // Progress bar at bottom of document
+      if (phase === "synthesis") {
+        const progress = Math.min(1, visibleChars / Math.max(1, planText.length));
+        ctx.fillStyle = "#1a1a2e";
+        ctx.fillRect(docX + 8, docY + docH - 12, docW - 16, 6);
+        ctx.fillStyle = "#00ff66";
+        ctx.fillRect(docX + 8, docY + docH - 12, (docW - 16) * progress, 6);
+      }
+    }
+
     // Reaper overlay
     if (phase === "reaper" && reaper) {
       // Red vignette
@@ -685,7 +865,7 @@ export function MeetingRoom({ members, phase, positions, votes, reaper }: Meetin
     }
 
     rafRef.current = requestAnimationFrame(render);
-  }, [members, phase, positions, votes, reaper]);
+  }, [members, phase, positions, votes, reaper, finalPlan]);
 
   useEffect(() => {
     rafRef.current = requestAnimationFrame(render);

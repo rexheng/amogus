@@ -29,6 +29,7 @@ export default function Home() {
             positions={council.positions}
             votes={council.votes}
             reaper={council.reaper}
+            finalPlan={council.finalPlan}
           />
         </div>
 
