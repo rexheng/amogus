@@ -107,6 +107,18 @@ export class CouncilState {
       });
     });
 
+    httpServer.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE") {
+        console.error(`[council] Port ${port} in use, trying ${port + 1}...`);
+        httpServer.listen(port + 1, () => {
+          this.sandboxUrl = `http://localhost:${port + 1}`;
+          console.error(`[council] Server running at ${this.sandboxUrl}`);
+        });
+      } else {
+        console.error(`[council] Server error: ${err.message}`);
+      }
+    });
+
     httpServer.listen(port, () => {
       this.sandboxUrl = `http://localhost:${port}`;
       console.error(`[council] Server running at ${this.sandboxUrl}`);
