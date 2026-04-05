@@ -37,33 +37,6 @@ export interface MemberPosition {
   confidence: number;
 }
 
-// ─── Character states for the canvas renderer ───
-
-export type CrewmateState =
-  | "idle" // Standing around the room
-  | "walking" // Moving to a position
-  | "speaking" // At the table, speech bubble active
-  | "voting" // Casting a vote
-  | "dead" // Being executed
-  | "spawning"; // Newly created
-
-export interface CrewmateVisual {
-  id: string;
-  name: string;
-  color: string;
-  accessory: string;
-  generation: number;
-  state: CrewmateState;
-  x: number;
-  y: number;
-  targetX: number;
-  targetY: number;
-  speechText: string;
-  voteOption: string;
-  confidence: number;
-  opacity: number;
-}
-
 // ─── WebSocket events from MCP server ───
 
 export type SandboxEvent =

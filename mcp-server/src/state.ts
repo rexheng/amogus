@@ -173,10 +173,6 @@ export class CouncilState {
     this.broadcast({ event: "phase_change", phase });
   }
 
-  getMember(id: string): MemberState | undefined {
-    return this.members.find((m) => m.id === id);
-  }
-
   replaceMember(deadId: string, newMember: MemberState): void {
     const idx = this.members.findIndex((m) => m.id === deadId);
     if (idx !== -1) {
@@ -193,7 +189,4 @@ export class CouncilState {
     return `decision-${String(this.decisionCounter + 1).padStart(3, "0")}`;
   }
 
-  shutdown(): void {
-    this.wss?.close();
-  }
 }

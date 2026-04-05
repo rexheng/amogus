@@ -43,17 +43,12 @@ export type CouncilPhase =
 export interface CouncilRequest {
   prompt: string;
   context?: string;
-  options?: string[];
-}
-
-export interface FrameworkAnswers {
-  [question: string]: string;
 }
 
 export interface MemberPosition {
   memberId: string;
   memberName: string;
-  frameworkAnswers: FrameworkAnswers;
+  frameworkAnswers: Record<string, string>;
   critique: string;
   revisedPlan: string;
   vote: string;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SandboxEvent, CouncilPhase, MemberInfo, MemberPosition } from "@/lib/types";
 
 export interface CouncilSocketState {
@@ -44,12 +44,6 @@ export function useCouncilSocket(url?: string) {
     : "ws://localhost:3099");
   const wsRef = useRef<WebSocket | null>(null);
   const [state, setState] = useState<CouncilSocketState>(INITIAL_STATE);
-  const [eventLog, setEventLog] = useState<SandboxEvent[]>([]);
-
-  const pushEvent = useCallback((event: SandboxEvent) => {
-    setEventLog((prev) => [...prev.slice(-100), event]); // Keep last 100 events
-  }, []);
-
   useEffect(() => {
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
@@ -69,8 +63,6 @@ export function useCouncilSocket(url?: string) {
       } catch {
         return;
       }
-
-      pushEvent(event);
 
       setState((prev) => {
         switch (event.event) {
@@ -161,7 +153,7 @@ export function useCouncilSocket(url?: string) {
     return () => {
       ws.close();
     };
-  }, [wsUrl, pushEvent]);
+  }, [wsUrl]);
 
-  return { ...state, eventLog };
+  return state;
 }
